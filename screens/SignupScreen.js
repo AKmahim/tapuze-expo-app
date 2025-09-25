@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, Alert, TextInput, Image, ScrollView, Dimensions } from 'react-native';
 import { signUpUser } from '../services/apiService';
 
@@ -14,6 +14,30 @@ export default function SignupScreen({ navigation }) {
   const [department, setDepartment] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
+
+  // Reset form fields
+  const resetForm = () => {
+    setName('');
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+    setPhoneNumber('');
+    setDepartment('');
+    setRole('student');
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    setFieldErrors({});
+    setIsLoading(false);
+  };
+
+  // Clear form when component mounts (when user navigates to signup screen)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      resetForm();
+    });
+
+    return unsubscribe;
+  }, [navigation]);
   
   const handleGoogleSignup = () => {
     Alert.alert(
@@ -143,8 +167,8 @@ export default function SignupScreen({ navigation }) {
       const response = await signUpUser(userData);
       
       if (response.status && response.data) {
-        // Clear any existing errors
-        setFieldErrors({});
+        // Reset form completely
+        resetForm();
         
         Alert.alert(
           'Account Created Successfully! 🎉', 
@@ -214,13 +238,24 @@ export default function SignupScreen({ navigation }) {
           </View>
           
           <View style={styles.formContainer}>
-            <Text style={styles.sectionLabel}>I am a</Text>
+            <View style={styles.formHeader}>
+              <Text style={styles.sectionLabel}>I am a</Text>
+              {(name || email || password || phoneNumber || department) && (
+                <TouchableOpacity 
+                  style={styles.clearButton}
+                  onPress={resetForm}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.clearButtonText}>Clear Form</Text>
+                </TouchableOpacity>
+              )}
+            </View>
             <View style={styles.roleSelector}>
               <TouchableOpacity 
                 style={[styles.roleButton, role === 'student' && styles.activeRole]}
                 onPress={() => {
                   setRole('student');
-                  setFieldErrors({});
+                  clearFieldError('role');
                 }}
                 activeOpacity={0.8}
               >
@@ -231,7 +266,7 @@ export default function SignupScreen({ navigation }) {
                 style={[styles.roleButton, role === 'lecturer' && styles.activeRole]}
                 onPress={() => {
                   setRole('lecturer');
-                  setFieldErrors({});
+                  clearFieldError('role');
                 }}
                 activeOpacity={0.8}
               >
@@ -445,17 +480,36 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingTop: 8,
   },
+  formHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    paddingHorizontal: 4,
+  },
   sectionLabel: {
     fontSize: 15,
     fontWeight: '600',
     color: '#334155',
-    marginBottom: 10,
+    flex: 1,
     textAlign: 'center',
+  },
+  clearButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+  },
+  clearButtonText: {
+    fontSize: 12,
+    color: '#ef4444',
+    fontWeight: '500',
   },
   roleSelector: {
     flexDirection: 'row',
     justifyContent: 'center',
     marginBottom: 20,
+    marginTop: 5,
     gap: 10,
     paddingHorizontal: 4,
   },
