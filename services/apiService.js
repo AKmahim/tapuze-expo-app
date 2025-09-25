@@ -1,6 +1,25 @@
 // API Service for handling backend communication
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_BASE_URL = 'https://tapuze.xrinteractive.site/api/v1'; // Tapuze API base URL
+
+// Test API connection
+export const testApiConnection = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/test`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      }
+    });
+    
+    // Even if the endpoint doesn't exist, we can check if the server responds
+    return response.status;
+  } catch (error) {
+    console.error('API connection test failed:', error);
+    throw new Error('Unable to connect to the API server');
+  }
+};
 
 // Authentication APIs
 export const signUpUser = async (userData) => {
@@ -60,12 +79,46 @@ export const signInUser = async (credentials) => {
     const result = await response.json();
     
     if (!response.ok) {
-      throw new Error(result.message || 'Sign in failed');
+      // Handle validation errors (422)
+      if (response.status === 422 && result.errors) {
+        const errorObj = new Error(result.message || 'Validation failed');
+        errorObj.validationErrors = result.errors;
+        errorObj.status = 422;
+        throw errorObj;
+      }
+      
+      // Handle invalid credentials (401)
+      if (response.status === 401) {
+        const errorObj = new Error(result.message || 'Invalid credentials');
+        errorObj.status = 401;
+        throw errorObj;
+      }
+      
+      // Handle server errors (500)
+      if (response.status === 500) {
+        const errorObj = new Error(result.message || 'Server error occurred');
+        errorObj.status = 500;
+        errorObj.serverError = result.error;
+        throw errorObj;
+      }
+      
+      // Handle other errors
+      const errorObj = new Error(result.message || result.error || 'Sign in failed');
+      errorObj.status = response.status;
+      throw errorObj;
     }
 
     return result;
   } catch (error) {
     console.error('Sign in failed:', error);
+    
+    // If it's a network error or JSON parsing error
+    if (!error.status) {
+      const networkError = new Error('Network error. Please check your internet connection and try again.');
+      networkError.status = 0;
+      throw networkError;
+    }
+    
     throw error;
   }
 };
@@ -185,19 +238,24 @@ export const updateSubmissionEvaluation = async (classroomId, assignmentId, subm
   }
 };
 
-// Helper function to get auth token (implement based on your auth system)
-const getAuthToken = () => {
-  // Replace with your actual token retrieval logic
-  return localStorage.getItem('authToken') || '';
+// Helper function to get auth token
+const getAuthToken = async () => {
+  try {
+    return await AsyncStorage.getItem('authToken') || '';
+  } catch (error) {
+    console.error('Error getting auth token:', error);
+    return '';
+  }
 };
 
 // Additional API functions you might need:
 
 export const getSubmissions = async (classroomId, assignmentId) => {
   try {
+    const token = await getAuthToken();
     const response = await fetch(`${API_BASE_URL}/classrooms/${classroomId}/assignments/${assignmentId}/submissions`, {
       headers: {
-        'Authorization': `Bearer ${getAuthToken()}`
+        'Authorization': `Bearer ${token}`
       }
     });
     
@@ -214,9 +272,10 @@ export const getSubmissions = async (classroomId, assignmentId) => {
 
 export const getAssignment = async (classroomId, assignmentId) => {
   try {
+    const token = await getAuthToken();
     const response = await fetch(`${API_BASE_URL}/classrooms/${classroomId}/assignments/${assignmentId}`, {
       headers: {
-        'Authorization': `Bearer ${getAuthToken()}`
+        'Authorization': `Bearer ${token}`
       }
     });
     
@@ -233,9 +292,10 @@ export const getAssignment = async (classroomId, assignmentId) => {
 
 export const getClassroom = async (classroomId) => {
   try {
+    const token = await getAuthToken();
     const response = await fetch(`${API_BASE_URL}/classrooms/${classroomId}`, {
       headers: {
-        'Authorization': `Bearer ${getAuthToken()}`
+        'Authorization': `Bearer ${token}`
       }
     });
     

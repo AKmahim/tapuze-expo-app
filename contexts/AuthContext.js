@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AuthContext = createContext();
 
@@ -12,6 +13,7 @@ export const AuthProvider = ({ children }) => {
   const [classrooms, setClassrooms] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [submissions, setSubmissions] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Generate unique IDs
   const generateUniqueId = () => {
@@ -25,6 +27,56 @@ export const AuthProvider = ({ children }) => {
   const generateLecturerId = () => {
     return `L${Math.floor(1000 + Math.random() * 9000)}`;
   };
+
+  // Token storage functions
+  const storeAuthData = async (userData) => {
+    try {
+      await AsyncStorage.setItem('authToken', userData.token);
+      await AsyncStorage.setItem('userData', JSON.stringify(userData));
+    } catch (error) {
+      console.error('Error storing auth data:', error);
+    }
+  };
+
+  const getStoredAuthData = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      const userData = await AsyncStorage.getItem('userData');
+      
+      if (token && userData) {
+        return {
+          token,
+          user: JSON.parse(userData)
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting stored auth data:', error);
+      return null;
+    }
+  };
+
+  const clearAuthData = async () => {
+    try {
+      await AsyncStorage.removeItem('authToken');
+      await AsyncStorage.removeItem('userData');
+    } catch (error) {
+      console.error('Error clearing auth data:', error);
+    }
+  };
+
+  // Check for stored user on app start
+  useEffect(() => {
+    const checkStoredAuth = async () => {
+      const storedAuth = await getStoredAuthData();
+      if (storedAuth) {
+        setUser(storedAuth.user);
+      }
+      setIsLoading(false);
+    };
+    
+    checkStoredAuth();
+  }, []);
 
   const signup = (email, password, name, role, additionalData = {}) => {
     // Check if user already exists
@@ -53,22 +105,46 @@ export const AuthProvider = ({ children }) => {
     return newUser;
   };
 
-  const login = (email, password, role) => {
-    // In a real app, this would verify credentials with a backend
-    const foundUser = users.find(u => u.email === email) || {
-      id: generateUniqueId(),
-      userId: role === 'student' ? generateStudentId() : generateLecturerId(),
-      email,
-      name: role === 'student' ? 'Student User' : 'Lecturer User',
-      role,
-      joinedClassrooms: [],
-    };
+  const login = async (email, password, role, userData = null) => {
+    let foundUser;
+    
+    if (userData) {
+      // Use actual user data from API response
+      foundUser = {
+        id: userData.id,
+        userId: userData.id,
+        email: userData.email,
+        name: userData.name,
+        role: userData.role,
+        department: userData.department,
+        phone_number: userData.phone_number,
+        token: userData.token,
+        joinedClassrooms: [],
+        avatar: null,
+        bio: '',
+        phone: userData.phone_number || ''
+      };
+      
+      // Store auth data
+      await storeAuthData(foundUser);
+    } else {
+      // Fallback for mock data
+      foundUser = users.find(u => u.email === email) || {
+        id: generateUniqueId(),
+        userId: role === 'student' ? generateStudentId() : generateLecturerId(),
+        email,
+        name: role === 'student' ? 'Student User' : 'Lecturer User',
+        role,
+        joinedClassrooms: [],
+      };
+    }
 
     setUser(foundUser);
     return foundUser;
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await clearAuthData();
     setUser(null);
   };
 
@@ -182,6 +258,7 @@ export const AuthProvider = ({ children }) => {
       classrooms,
       assignments,
       submissions,
+      isLoading,
       signup,
       login,
       logout,

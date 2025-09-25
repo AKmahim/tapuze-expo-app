@@ -1,23 +1,113 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, Image, TextInput, Alert } from 'react-native';
+import { signInUser, testApiConnection } from '../services/apiService';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function AuthScreen({ navigation }) {
   const [role, setRole] = useState('student');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const { login } = useAuth();
 
-  const handleContinue = () => {
-    // Mock login - directly navigate based on selected role
-    const mockEmail = email || `demo${role}@example.com`;
+  const handleContinue = async () => {
+    // Clear previous errors
+    setEmailError('');
+    setPasswordError('');
     
-    console.log('Sign in button pressed with role:', role);
-    console.log('Navigating to:', role === 'student' ? 'StudentDashboard' : 'LecturerDashboard');
+    // Client-side validation
+    let hasErrors = false;
     
-    // Direct navigation based on role selection
-    if (role === 'student') {
-      navigation.navigate('StudentDashboard');
-    } else if (role === 'lecturer') {
-      navigation.navigate('LecturerDashboard');
+    if (!email.trim()) {
+      setEmailError('Email is required');
+      hasErrors = true;
+    } else if (!/\S+@\S+\.\S+/.test(email.trim())) {
+      setEmailError('Please enter a valid email address');
+      hasErrors = true;
+    }
+    
+    if (!password.trim()) {
+      setPasswordError('Password is required');
+      hasErrors = true;
+    } else if (password.length < 8) {
+      setPasswordError('Password must be at least 8 characters long');
+      hasErrors = true;
+    }
+    
+    if (hasErrors) {
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const response = await signInUser({
+        email: email.trim(),
+        password: password
+      });
+
+      if (response.status && response.data) {
+        // Store user data in context
+        const userData = {
+          ...response.data.user,
+          token: response.data.token
+        };
+        
+        await login(userData.email, password, userData.role, userData);
+
+        console.log('Login successful:', userData);
+        
+        // Navigate based on user role from API response
+        if (userData.role === 'student') {
+          navigation.navigate('StudentDashboard');
+        } else if (userData.role === 'lecturer') {
+          navigation.navigate('LecturerDashboard');
+        } else {
+          Alert.alert('Error', 'Invalid user role');
+        }
+      } else {
+        Alert.alert('Error', 'Invalid response from server');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      
+      // Handle different types of errors
+      let errorTitle = 'Login Failed';
+      let errorMessage = 'An unexpected error occurred. Please try again.';
+      
+      if (error.status === 422 && error.validationErrors) {
+        // Handle validation errors from server
+        if (error.validationErrors.email) {
+          setEmailError(error.validationErrors.email[0]);
+        }
+        if (error.validationErrors.password) {
+          setPasswordError(error.validationErrors.password[0]);
+        }
+        
+        // Don't show alert for validation errors, let field errors show
+        return;
+          
+      } else if (error.status === 401) {
+        // Handle invalid credentials
+        errorMessage = 'Invalid email or password. Please check your credentials and try again.';
+        
+      } else if (error.status === 500) {
+        // Handle server errors
+        errorMessage = 'Server error occurred. Please try again later.';
+        
+      } else if (error.status === 0) {
+        // Handle network errors
+        errorMessage = 'Network error. Please check your internet connection and try again.';
+        
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert(errorTitle, errorMessage);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -73,33 +163,49 @@ export default function AuthScreen({ navigation }) {
 
           <View style={styles.inputContainer}>
             <TextInput
-              style={styles.input}
+              style={[styles.input, emailError ? styles.inputError : null]}
               placeholder="Email address"
               placeholderTextColor="#94a3b8"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(text) => {
+                setEmail(text);
+                if (emailError) setEmailError('');
+              }}
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
             />
+            {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
+            
             <TextInput
-              style={styles.input}
+              style={[styles.input, passwordError ? styles.inputError : null]}
               placeholder="Password"
               placeholderTextColor="#94a3b8"
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(text) => {
+                setPassword(text);
+                if (passwordError) setPasswordError('');
+              }}
               secureTextEntry
               autoCapitalize="none"
               autoCorrect={false}
             />
+            {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
+            
+            <Text style={styles.demoHint}>
+              Demo: Use credentials from your Tapuze account
+            </Text>
           </View>
 
           <TouchableOpacity 
-            style={styles.continueButton}
+            style={[styles.continueButton, isLoading && styles.continueButtonDisabled]}
             onPress={handleContinue}
             activeOpacity={0.9}
+            disabled={isLoading}
           >
-            <Text style={styles.continueButtonText}>Sign In</Text>
+            <Text style={styles.continueButtonText}>
+              {isLoading ? 'Signing In...' : 'Sign In'}
+            </Text>
           </TouchableOpacity>
 
           <View style={styles.divider}>
@@ -241,11 +347,19 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontWeight: '600',
     fontSize: 14,
-  },  activeRoleText: {
+  },
+  activeRoleText: {
     color: '#ffffff',
   },
   inputContainer: {
     marginBottom: 20,
+  },
+  demoHint: {
+    fontSize: 12,
+    color: '#64748b',
+    textAlign: 'center',
+    marginTop: 8,
+    fontStyle: 'italic',
   },
   input: {
     height: 52,
@@ -254,7 +368,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: 15,
     color: '#1e293b',
-    marginBottom: 12,
+    marginBottom: 4,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     shadowColor: '#000',
@@ -265,6 +379,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 1,
+  },
+  inputError: {
+    borderColor: '#ef4444',
+    borderWidth: 1.5,
+  },
+  errorText: {
+    color: '#ef4444',
+    fontSize: 12,
+    marginBottom: 12,
+    marginLeft: 2,
+    fontWeight: '500',
   },
   continueButton: {
     height: 52,
@@ -281,6 +406,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 4,
+  },
+  continueButtonDisabled: {
+    backgroundColor: '#94a3b8',
+    shadowColor: '#94a3b8',
+    shadowOpacity: 0.1,
   },
   continueButtonText: {
     color: '#ffffff',
