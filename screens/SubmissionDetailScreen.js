@@ -1,8 +1,45 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, FlatList } from 'react-native';
+import Spinner from '../components/Spinner';
+import { getSubmissionById } from '../services/apiService';
 
 export default function SubmissionDetailScreen({ navigation, route }) {
-  const { submission, assignment } = route.params;
+  const { submission: initialSubmission, assignment } = route.params;
+  const [submission, setSubmission] = useState(initialSubmission);
+  const [loading, setLoading] = useState(false);
+
+  // Fetch detailed submission data if needed
+  const fetchSubmissionDetails = async () => {
+    try {
+      setLoading(true);
+      const response = await getSubmissionById(submission.id);
+      
+      if (response.success && response.data) {
+        // Update submission with more detailed data from API
+        const detailedSubmission = {
+          ...submission,
+          grade: response.data.grade,
+          feedback: response.data.feedback,
+          solution: response.data.solution,
+          // Add any other fields that might be available from the detailed API
+        };
+        setSubmission(detailedSubmission);
+      }
+    } catch (error) {
+      console.error('Error fetching submission details:', error);
+      // Don't show error to user as we already have basic submission data
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load detailed submission data on component mount if needed
+  useEffect(() => {
+    // Only fetch if we don't have all the details we need
+    if (!submission.solution && submission.id) {
+      fetchSubmissionDetails();
+    }
+  }, []);
   
   // Dummy evaluation data based on submission status
   const getDummyEvaluation = () => {
@@ -95,6 +132,15 @@ export default function SubmissionDetailScreen({ navigation, route }) {
       </TouchableOpacity>
     </View>
   );
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <Spinner />
+        <Text style={styles.loadingText}>Loading submission details...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -199,9 +245,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8f9fa',
   },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   scrollContainer: {
     padding: 16,
     paddingBottom: 100,
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#6c757d',
+    fontSize: 16,
   },
   title: {
     fontSize: 26,
