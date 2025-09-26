@@ -761,3 +761,38 @@ export const getClassroom = async (classroomId) => {
     throw error;
   }
 };
+
+// Student APIs
+export const getClassroomByCode = async (classroomCode) => {
+  try {
+    const token = await getAuthToken();
+    const response = await fetch(`${API_BASE_URL}/student/get-classroom-by-code/${classroomCode}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      }
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      const errorObj = new Error(result.message || 'Failed to fetch classroom');
+      errorObj.status = response.status;
+      throw errorObj;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Failed to fetch classroom by code:', error);
+    
+    if (!error.status) {
+      const networkError = new Error('Network error. Please check your internet connection and try again.');
+      networkError.status = 0;
+      throw networkError;
+    }
+    
+    throw error;
+  }
+};
