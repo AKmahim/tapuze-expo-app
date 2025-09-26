@@ -1,75 +1,86 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, Linking, TextInput } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import { useAuth } from '../contexts/AuthContext';
+import { submitAssignment } from '../services/apiService';
+import Spinner from '../components/Spinner';
 
 export default function SubmitAssignment({ navigation, route }) {
   const { assignment, classroom } = route.params;
+  const { user } = useAuth();
   const [files, setFiles] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [submissionTitle, setSubmissionTitle] = useState('');
+  const [submissionDescription, setSubmissionDescription] = useState('');
   
-  // Mock user data for visual purposes
-  const user = {
-    name: "John Doe",
-    userId: "STUD001"
-  };
-
-  // Mock existing submission for visual demonstration
-  const existingSubmission = null; // Set to null or mock data as needed
+  // For now, we don't check existing submissions (can be added later)
+  const existingSubmission = null;
 
   const pickDocuments = async () => {
-    // Mock file selection for visual demonstration
-    Alert.alert(
-      'File Selection',
-      'File picker functionality removed for demo. This would normally open a document picker.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Mock Select',
-          onPress: () => {
-            // Mock file data for visual demonstration
-            setFiles([{
-              type: 'document',
-              name: 'Assignment_Solution.pdf',
-              size: 2048000, // 2MB
-              uri: 'mock://file/path',
-              mimeType: 'application/pdf'
-            }]);
-            Alert.alert('Success', 'Mock file "Assignment_Solution.pdf" selected for demonstration!');
-          },
-        },
-      ]
-    );
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+        multiple: false
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        
+        // Check file size (max 10MB as per Laravel validation)
+        if (file.size > 10 * 1024 * 1024) {
+          Alert.alert('File Too Large', 'Please select a file smaller than 10MB.');
+          return;
+        }
+        
+        // Check if it's a PDF
+        if (file.mimeType !== 'application/pdf') {
+          Alert.alert('Invalid File Type', 'Please select a PDF file.');
+          return;
+        }
+
+        setFiles([{
+          type: 'document',
+          name: file.name,
+          size: file.size,
+          uri: file.uri,
+          mimeType: file.mimeType
+        }]);
+        
+        Alert.alert('Success', `File "${file.name}" selected successfully!`);
+      }
+    } catch (error) {
+      console.error('Error picking document:', error);
+      Alert.alert('Error', 'Failed to select document. Please try again.');
+    }
   };
 
   const handleQuestionPaperDownload = async () => {
-    if (!assignment.questionPaper) {
+    if (!assignment.questions) {
       Alert.alert('No Question Paper', 'This assignment does not have a question paper attached.');
       return;
     }
 
-    Alert.alert(
-      'Download Question Paper',
-      `Download functionality removed for demo. This would normally download "${assignment.questionPaperName || 'Question Paper'}".`,
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Mock Download',
-          onPress: () => {
-            setIsDownloading(true);
-            setTimeout(() => {
-              setIsDownloading(false);
-              Alert.alert('Download Complete', 'Mock download completed for demonstration!');
-            }, 2000);
-          },
-        },
-      ]
-    );
+    try {
+      setIsDownloading(true);
+      const questionPaperUrl = `https://tapuze.xrinteractive.site/${assignment.questions}`;
+      
+      // Open the PDF in browser/external app
+      const supported = await Linking.canOpenURL(questionPaperUrl);
+      
+      if (supported) {
+        await Linking.openURL(questionPaperUrl);
+        Alert.alert('Download Started', 'Question paper is opening in your browser/PDF viewer.');
+      } else {
+        Alert.alert('Error', 'Cannot open the question paper. Please try again later.');
+      }
+    } catch (error) {
+      console.error('Error downloading question paper:', error);
+      Alert.alert('Error', 'Failed to download question paper. Please try again.');
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -78,30 +89,78 @@ export default function SubmitAssignment({ navigation, route }) {
       return;
     }
 
+    if (!submissionTitle.trim()) {
+      Alert.alert('Error', 'Please enter a submission title');
+      return;
+    }
+
+    if (!submissionDescription.trim()) {
+      Alert.alert('Error', 'Please enter a submission description');
+      return;
+    }
+
     const action = existingSubmission ? 'resubmit' : 'submit';
     const actionText = existingSubmission ? 'Resubmit' : 'Submit';
     
     Alert.alert(
       `${actionText} Assignment`,
-      `Submission functionality removed for demo. This would normally ${action.toLowerCase()} "${assignment.title}".${existingSubmission ? ' This would replace your previous submission.' : ''}`,
+      `Are you sure you want to ${action.toLowerCase()} "${assignment.title}"?${existingSubmission ? ' This will replace your previous submission.' : ''}`,
       [
         {
           text: 'Cancel',
           style: 'cancel',
         },
         {
-          text: `Mock ${actionText}`,
+          text: actionText,
           style: existingSubmission ? 'destructive' : 'default',
-          onPress: () => {
-            setIsSubmitting(true);
-            setTimeout(() => {
+          onPress: async () => {
+            try {
+              setIsSubmitting(true);
+              
+              const file = files[0];
+              const response = await submitAssignment(
+                assignment.id,
+                submissionTitle.trim(),
+                submissionDescription.trim(),
+                file.uri,
+                file.name,
+                file.mimeType
+              );
+              
+              if (response.success) {
+                Alert.alert(
+                  'Success!', 
+                  `Assignment "${assignment.title}" submitted successfully!`,
+                  [{
+                    text: 'OK',
+                    onPress: () => navigation.goBack()
+                  }]
+                );
+              } else {
+                Alert.alert('Error', response.message || 'Failed to submit assignment');
+              }
+            } catch (error) {
+              console.error('Error submitting assignment:', error);
+              
+              let errorMessage = 'Failed to submit assignment. Please try again.';
+              
+              if (error.status === 409) {
+                errorMessage = 'You have already submitted this assignment.';
+              } else if (error.status === 422 && error.errors) {
+                const errorMessages = Object.values(error.errors).flat();
+                errorMessage = errorMessages.join('\n');
+              } else if (error.status === 403) {
+                errorMessage = 'Only students can submit assignments.';
+              } else if (error.status === 404) {
+                errorMessage = 'Assignment not found.';
+              } else if (error.message) {
+                errorMessage = error.message;
+              }
+              
+              Alert.alert('Error', errorMessage);
+            } finally {
               setIsSubmitting(false);
-              const successMessage = existingSubmission 
-                ? `Mock resubmission of "${assignment.title}" completed!`
-                : `Mock submission of "${assignment.title}" completed!`;
-              Alert.alert('Demo Success', successMessage);
-              navigation.goBack();
-            }, 2000);
+            }
           },
         },
       ]
@@ -191,7 +250,7 @@ export default function SubmitAssignment({ navigation, route }) {
       )}
 
       {/* Question Paper Section */}
-      {assignment.questionPaper && (
+      {assignment.questions && (
         <View style={styles.questionPaperContainer}>
           <Text style={styles.sectionTitle}>📄 Question Paper</Text>
           <View style={styles.questionPaperInfo}>
@@ -219,9 +278,35 @@ export default function SubmitAssignment({ navigation, route }) {
         </View>
       )}
 
+      {/* Submission Details Section */}
+      <View style={styles.uploadSection}>
+        <Text style={styles.sectionTitle}>📝 Submission Details</Text>
+        
+        <TextInput
+          style={styles.input}
+          placeholder="Enter submission title..."
+          value={submissionTitle}
+          onChangeText={setSubmissionTitle}
+          placeholderTextColor="#999"
+          editable={!isSubmitting}
+        />
+        
+        <TextInput
+          style={[styles.input, styles.descriptionInput]}
+          placeholder="Enter submission description..."
+          value={submissionDescription}
+          onChangeText={setSubmissionDescription}
+          placeholderTextColor="#999"
+          multiline
+          numberOfLines={4}
+          textAlignVertical="top"
+          editable={!isSubmitting}
+        />
+      </View>
+
       {/* File Upload Section */}
       <View style={styles.uploadSection}>
-        <Text style={styles.sectionTitle}>📤 Your Submission</Text>
+        <Text style={styles.sectionTitle}>📤 Your Submission File</Text>
         
         <TouchableOpacity 
           style={styles.uploadButton} 
@@ -567,5 +652,29 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 30,
+  },
+  input: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e0e6ed',
+    fontSize: 16,
+    color: '#2c3e50',
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  descriptionInput: {
+    minHeight: 100,
+    maxHeight: 150,
+    paddingTop: 12,
   },
 });

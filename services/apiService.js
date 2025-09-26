@@ -796,3 +796,86 @@ export const getClassroomByCode = async (classroomCode) => {
     throw error;
   }
 };
+
+export const getAssignmentsByClassroomCode = async (classroomCode) => {
+  try {
+    const token = await getAuthToken();
+    const response = await fetch(`${API_BASE_URL}/student/get-assignment-by-classroom-code/${classroomCode}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      }
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      const errorObj = new Error(result.message || 'Failed to fetch assignments');
+      errorObj.status = response.status;
+      throw errorObj;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Failed to fetch assignments by classroom code:', error);
+    
+    if (!error.status) {
+      const networkError = new Error('Network error. Please check your internet connection and try again.');
+      networkError.status = 0;
+      throw networkError;
+    }
+    
+    throw error;
+  }
+};
+
+export const submitAssignment = async (assignmentId, submissionTitle, submissionDescription, fileUri, fileName, fileType) => {
+  try {
+    const token = await getAuthToken();
+    
+    const formData = new FormData();
+    formData.append('assignment_id', assignmentId.toString());
+    formData.append('submission_title', submissionTitle);
+    formData.append('submission_description', submissionDescription);
+    
+    // Add the file
+    formData.append('submission_file', {
+      uri: fileUri,
+      type: fileType || 'application/pdf',
+      name: fileName || 'assignment_submission.pdf'
+    });
+
+    const response = await fetch(`${API_BASE_URL}/student/submit-assignment`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'multipart/form-data',
+      },
+      body: formData
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      const errorObj = new Error(result.message || 'Failed to submit assignment');
+      errorObj.status = response.status;
+      errorObj.errors = result.errors;
+      throw errorObj;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Failed to submit assignment:', error);
+    
+    if (!error.status) {
+      const networkError = new Error('Network error. Please check your internet connection and try again.');
+      networkError.status = 0;
+      throw networkError;
+    }
+    
+    throw error;
+  }
+};
