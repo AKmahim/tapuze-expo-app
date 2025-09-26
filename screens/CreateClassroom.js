@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
+import { createClassroom } from '../services/apiService';
+import Spinner from '../components/Spinner';
 import * as Clipboard from 'expo-clipboard';   // ✅ use expo-clipboard
 
 export default function CreateClassroom({ navigation, route }) {
   const [className, setClassName] = useState('');
   const [classDescription, setClassDescription] = useState('');
-  const { addClassroom } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
 
   const generateRandomCode = () => {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -14,25 +17,59 @@ export default function CreateClassroom({ navigation, route }) {
 
   const [classCode, setClassCode] = useState(generateRandomCode());
 
-  const handleCreateClassroom = () => {
-    if (className.trim()) {
-      try {
-        const newClassroom = {
-          name: className,
-          code: classCode,
-          description: classDescription,
-          studentCount: 0,
-        };
-        
-        addClassroom(newClassroom);
-        
-        Alert.alert('Success', `Classroom "${className}" created with code: ${classCode}`);
-        navigation.goBack();
-      } catch (error) {
-        Alert.alert('Error', error.message);
-      }
-    } else {
+  const handleCreateClassroom = async () => {
+    if (!className.trim()) {
       Alert.alert('Error', 'Please enter a classroom name');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      const classroomData = {
+        class_name: className.trim(),
+        class_details: classDescription.trim() || '',
+        class_code: classCode
+      };
+      
+      const response = await createClassroom(classroomData);
+      
+      if (response.success) {
+        Alert.alert(
+          'Success', 
+          `Classroom "${className}" created successfully with code: ${classCode}`,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Call the callback if provided to refresh the dashboard
+                if (route?.params?.onClassroomCreated) {
+                  route.params.onClassroomCreated();
+                }
+                navigation.goBack();
+              }
+            }
+          ]
+        );
+      } else {
+        throw new Error(response.message || 'Failed to create classroom');
+      }
+    } catch (error) {
+      console.error('Create classroom error:', error);
+      
+      let errorMessage = 'Failed to create classroom. Please try again.';
+      
+      if (error.status === 422 && error.validationErrors) {
+        // Handle validation errors
+        const errorMessages = Object.values(error.validationErrors).flat();
+        errorMessage = errorMessages.join('\n');
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -82,11 +119,15 @@ export default function CreateClassroom({ navigation, route }) {
       </View>
       
       <TouchableOpacity 
-        style={[styles.createButton, !className.trim() && styles.disabledButton]}
+        style={[styles.createButton, (!className.trim() || loading) && styles.disabledButton]}
         onPress={handleCreateClassroom}
-        disabled={!className.trim()}
+        disabled={!className.trim() || loading}
       >
-        <Text style={styles.createButtonText}>Create Classroom</Text>
+        {loading ? (
+          <Spinner size="small" color="#fff" showText={false} style={styles.buttonSpinner} />
+        ) : (
+          <Text style={styles.createButtonText}>Create Classroom</Text>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -188,5 +229,10 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  buttonSpinner: {
+    padding: 0,
+    margin: 0,
+    flex: 0,
   },
 });

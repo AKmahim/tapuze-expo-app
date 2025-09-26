@@ -147,6 +147,119 @@ export const logoutUser = async (token) => {
   }
 };
 
+// Lecturer Classroom Management APIs
+export const getAllClassrooms = async () => {
+  try {
+    const token = await getAuthToken();
+    const response = await fetch(`${API_BASE_URL}/lecturer/classroom/get-classrooms`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      }
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      const errorObj = new Error(result.message || 'Failed to fetch classrooms');
+      errorObj.status = response.status;
+      throw errorObj;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Failed to fetch classrooms:', error);
+    
+    if (!error.status) {
+      const networkError = new Error('Network error. Please check your internet connection and try again.');
+      networkError.status = 0;
+      throw networkError;
+    }
+    
+    throw error;
+  }
+};
+
+export const createClassroom = async (classroomData) => {
+  try {
+    const token = await getAuthToken();
+    const response = await fetch(`${API_BASE_URL}/lecturer/classroom/create-classroom`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(classroomData)
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      // Handle validation errors (422)
+      if (response.status === 422 && result.errors) {
+        const errorObj = new Error(result.message || 'Validation failed');
+        errorObj.validationErrors = result.errors;
+        errorObj.status = 422;
+        throw errorObj;
+      }
+      
+      // Handle other errors
+      const errorObj = new Error(result.message || 'Failed to create classroom');
+      errorObj.status = response.status;
+      throw errorObj;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Failed to create classroom:', error);
+    
+    if (!error.status) {
+      const networkError = new Error('Network error. Please check your internet connection and try again.');
+      networkError.status = 0;
+      throw networkError;
+    }
+    
+    throw error;
+  }
+};
+
+export const deleteClassroom = async (classroomId) => {
+  try {
+    const token = await getAuthToken();
+    const response = await fetch(`${API_BASE_URL}/lecturer/classroom/delete-classroom/${classroomId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      }
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      const errorObj = new Error(result.message || 'Failed to delete classroom');
+      errorObj.status = response.status;
+      throw errorObj;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Failed to delete classroom:', error);
+    
+    if (!error.status) {
+      const networkError = new Error('Network error. Please check your internet connection and try again.');
+      networkError.status = 0;
+      throw networkError;
+    }
+    
+    throw error;
+  }
+};
+
 // Mock function for AI grading - replace with actual API call
 export const gradeHomeworkWithAI = async (fileData) => {
   try {

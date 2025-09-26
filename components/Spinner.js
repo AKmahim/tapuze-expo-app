@@ -1,11 +1,17 @@
 import React from 'react';
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 
-const Spinner = ({ text = 'Loading...' }) => {
+const Spinner = ({ 
+  text = 'Loading...', 
+  size = 'large', 
+  color = '#0066cc', 
+  showText = true,
+  style 
+}) => {
   return (
-    <View style={styles.container}>
-      <ActivityIndicator size="large" color="#0066cc" />
-      <Text style={styles.text}>{text}</Text>
+    <View style={[styles.container, style]}>
+      <ActivityIndicator size={size} color={color} />
+      {showText && <Text style={styles.text}>{text}</Text>}
     </View>
   );
 };

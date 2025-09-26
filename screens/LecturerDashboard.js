@@ -1,48 +1,19 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, FlatList, StyleSheet, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, FlatList, StyleSheet, Alert, RefreshControl } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import ClassroomCard from '../components/ClassroomCard';
+import Spinner from '../components/Spinner';
+import { useAuth } from '../contexts/AuthContext';
+import { getAllClassrooms, logoutUser, deleteClassroom } from '../services/apiService';
 
 export default function LecturerDashboard({ navigation }) {
-  // Mock user data for visual purposes
-  const user = {
-    name: "Dr. Sarah Wilson",
-    userId: "LECT001",
-    role: "lecturer"
-  };
+  const { user, logout } = useAuth();
+  const [classrooms, setClassrooms] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Dummy classrooms for visual demonstration
-  const dummyClassrooms = [
-    {
-      id: 'CLS001',
-      name: 'Advanced Mathematics',
-      description: 'Calculus and Linear Algebra for Computer Science students',
-      code: 'MATH301',
-      studentCount: 45,
-      createdAt: '2024-01-15',
-      lecturer: 'Dr. Sarah Wilson'
-    },
-    {
-      id: 'CLS002',
-      name: 'Data Structures & Algorithms',
-      description: 'Fundamental concepts of data structures and algorithm design',
-      code: 'CS201',
-      studentCount: 38,
-      createdAt: '2024-01-20',
-      lecturer: 'Dr. Sarah Wilson'
-    },
-    {
-      id: 'CLS003',
-      name: 'Database Systems',
-      description: 'Relational databases, SQL, and database design principles',
-      code: 'CS301',
-      studentCount: 32,
-      createdAt: '2024-02-01',
-      lecturer: 'Dr. Sarah Wilson'
-    }
-  ];
-
-  // Dummy assignments for classroom context
+  // Dummy assignments for classroom context (can be replaced with API call later)
   const dummyAssignments = [
     { id: 'ASG001', classroomId: 'CLS001', title: 'Matrix Operations Assignment' },
     { id: 'ASG002', classroomId: 'CLS001', title: 'Calculus Problem Set' },
@@ -51,13 +22,71 @@ export default function LecturerDashboard({ navigation }) {
     { id: 'ASG005', classroomId: 'CLS003', title: 'SQL Query Assignment' }
   ];
 
-  const handleLogout = () => {
-    // Navigate directly to AuthScreen
-    navigation.navigate('AuthScreen');
+  // Fetch classrooms from API
+  const fetchClassrooms = async () => {
+    try {
+      setLoading(true);
+      const response = await getAllClassrooms();
+      
+      if (response.success && response.data) {
+        // Transform API data to match component expectations
+        const transformedClassrooms = response.data.map(classroom => ({
+          id: classroom.id.toString(),
+          name: classroom.class_name,
+          description: classroom.class_details,
+          code: classroom.class_code,
+          studentCount: 0, // This would come from a separate API call if needed
+          createdAt: classroom.created_at,
+          lecturer: user?.name || 'Unknown'
+        }));
+        setClassrooms(transformedClassrooms);
+      } else {
+        setClassrooms([]);
+      }
+    } catch (error) {
+      console.error('Error fetching classrooms:', error);
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to load classrooms. Please try again.'
+      );
+      setClassrooms([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Refresh classrooms
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchClassrooms();
+    setRefreshing(false);
+  };
+
+  // Load classrooms on component mount
+  useEffect(() => {
+    fetchClassrooms();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (token) {
+        await logoutUser(token);
+      }
+      await logout(); // Clear local auth state
+      navigation.navigate('AuthScreen');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Even if API logout fails, clear local state
+      await logout();
+      navigation.navigate('AuthScreen');
+    }
   };
 
   const handleCreateClassroom = () => {
-    navigation.navigate('CreateClassroom');
+    navigation.navigate('CreateClassroom', {
+      onClassroomCreated: fetchClassrooms // Pass callback to refresh list
+    });
   };
 
   const navigateToProfile = () => {
@@ -66,16 +95,29 @@ export default function LecturerDashboard({ navigation }) {
 
   const handleDeleteClassroom = (classroomId) => {
     Alert.alert(
-      'Delete Classroom', 
-      'Delete functionality removed for demo. This would normally delete the classroom.',
+      'Delete Classroom',
+      'Are you sure you want to delete this classroom? This action cannot be undone.',
       [
         {
           text: "Cancel",
           style: "cancel"
         },
         {
-          text: "Mock Delete",
-          onPress: () => Alert.alert('Demo', 'Mock deletion completed for demonstration!')
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteClassroom(classroomId);
+              Alert.alert('Success', 'Classroom deleted successfully');
+              fetchClassrooms(); // Refresh the list
+            } catch (error) {
+              console.error('Delete classroom error:', error);
+              Alert.alert(
+                'Error', 
+                error.message || 'Failed to delete classroom. Please try again.'
+              );
+            }
+          }
         }
       ]
     );
@@ -89,7 +131,7 @@ export default function LecturerDashboard({ navigation }) {
         assignments: dummyAssignments.filter(a => a.classroomId === item.id)
       })}
       showStudentCount
-      onDelete={handleDeleteClassroom}
+      onDelete={() => handleDeleteClassroom(item.id)}
     />
   );
 
@@ -113,10 +155,19 @@ export default function LecturerDashboard({ navigation }) {
     });
   }, [navigation]);
 
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <Spinner />
+        <Text style={styles.loadingText}>Loading classrooms...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Lecturer Dashboard</Text>
-      <Text style={styles.welcome}>Welcome, {user?.name}!</Text>
+      <Text style={styles.welcome}>Welcome, {user?.name || 'Lecturer'}!</Text>
       
       <TouchableOpacity 
         style={styles.createButton}
@@ -125,16 +176,34 @@ export default function LecturerDashboard({ navigation }) {
         <Text style={styles.createButtonText}>Create New Classroom</Text>
       </TouchableOpacity>
 
-      <Text style={styles.sectionTitle}>Your Classrooms</Text>
+      <Text style={styles.sectionTitle}>Your Classrooms ({classrooms.length})</Text>
       
-      {dummyClassrooms.length > 0 ? (
+      {classrooms.length > 0 ? (
         <FlatList
-          data={dummyClassrooms}
+          data={classrooms}
           renderItem={renderClassroom}
           keyExtractor={item => item.id}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={['#4a90e2']}
+            />
+          }
+          showsVerticalScrollIndicator={false}
         />
       ) : (
-        <Text style={styles.noClassesText}>You haven't created any classrooms yet. Create your first classroom to get started!</Text>
+        <View style={styles.emptyContainer}>
+          <Text style={styles.noClassesText}>
+            You haven't created any classrooms yet. Create your first classroom to get started!
+          </Text>
+          <TouchableOpacity 
+            style={[styles.createButton, styles.secondaryButton]}
+            onPress={handleCreateClassroom}
+          >
+            <Text style={styles.createButtonText}>Create Your First Classroom</Text>
+          </TouchableOpacity>
+        </View>
       )}
     </View>
   );
@@ -145,6 +214,10 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     backgroundColor: '#f5f5f5',
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   title: {
     fontSize: 24,
@@ -166,6 +239,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
   },
+  secondaryButton: {
+    marginTop: 20,
+    backgroundColor: '#28a745',
+  },
   createButtonText: {
     color: '#fff',
     fontSize: 16,
@@ -177,12 +254,23 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     color: '#333',
   },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
   noClassesText: {
     textAlign: 'center',
-    marginTop: 20,
     color: '#666',
     fontStyle: 'italic',
-    paddingHorizontal: 20,
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#666',
+    fontSize: 16,
   },
   headerRightContainer: {
     flexDirection: 'row',
