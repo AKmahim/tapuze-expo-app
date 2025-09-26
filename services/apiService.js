@@ -260,6 +260,164 @@ export const deleteClassroom = async (classroomId) => {
   }
 };
 
+// Lecturer Assignment Management APIs
+export const getAllAssignments = async () => {
+  try {
+    const token = await getAuthToken();
+    const response = await fetch(`${API_BASE_URL}/lecturer/assignment/get-assignments`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      }
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      const errorObj = new Error(result.message || 'Failed to fetch assignments');
+      errorObj.status = response.status;
+      throw errorObj;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Failed to fetch assignments:', error);
+    
+    if (!error.status) {
+      const networkError = new Error('Network error. Please check your internet connection and try again.');
+      networkError.status = 0;
+      throw networkError;
+    }
+    
+    throw error;
+  }
+};
+
+export const getAssignmentsByClassroomId = async (classroomId) => {
+  try {
+    const token = await getAuthToken();
+    const response = await fetch(`${API_BASE_URL}/lecturer/assignment/get-assignments-by-classroom/${classroomId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      }
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      const errorObj = new Error(result.message || 'Failed to fetch assignments');
+      errorObj.status = response.status;
+      throw errorObj;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Failed to fetch assignments by classroom:', error);
+    
+    if (!error.status) {
+      const networkError = new Error('Network error. Please check your internet connection and try again.');
+      networkError.status = 0;
+      throw networkError;
+    }
+    
+    throw error;
+  }
+};
+
+export const createAssignment = async (assignmentData) => {
+  try {
+    const token = await getAuthToken();
+    
+    // Create FormData for file upload
+    const formData = new FormData();
+    formData.append('title', assignmentData.title);
+    formData.append('description', assignmentData.description);
+    formData.append('deadline', assignmentData.deadline);
+    formData.append('classroom_id', assignmentData.classroom_id);
+    
+    if (assignmentData.questions) {
+      formData.append('questions', assignmentData.questions);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/lecturer/assignment/create-assignment`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: formData
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      // Handle validation errors (422)
+      if (response.status === 422 && result.errors) {
+        const errorObj = new Error(result.message || 'Validation failed');
+        errorObj.validationErrors = result.errors;
+        errorObj.status = 422;
+        throw errorObj;
+      }
+      
+      // Handle other errors
+      const errorObj = new Error(result.message || 'Failed to create assignment');
+      errorObj.status = response.status;
+      throw errorObj;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Failed to create assignment:', error);
+    
+    if (!error.status) {
+      const networkError = new Error('Network error. Please check your internet connection and try again.');
+      networkError.status = 0;
+      throw networkError;
+    }
+    
+    throw error;
+  }
+};
+
+export const deleteAssignment = async (assignmentId) => {
+  try {
+    const token = await getAuthToken();
+    const response = await fetch(`${API_BASE_URL}/lecturer/assignment/delete-assignment/${assignmentId}`, {
+      method: 'GET', // Note: API uses GET for delete
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      }
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      const errorObj = new Error(result.message || 'Failed to delete assignment');
+      errorObj.status = response.status;
+      throw errorObj;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Failed to delete assignment:', error);
+    
+    if (!error.status) {
+      const networkError = new Error('Network error. Please check your internet connection and try again.');
+      networkError.status = 0;
+      throw networkError;
+    }
+    
+    throw error;
+  }
+};
+
 // Mock function for AI grading - replace with actual API call
 export const gradeHomeworkWithAI = async (fileData) => {
   try {

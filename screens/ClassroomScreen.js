@@ -5,6 +5,8 @@ import { useAuth } from '../contexts/AuthContext';
 
 export default function ClassroomScreen({ navigation, route }) {
   const { classroom } = route.params;
+  const classroomId = classroom.id;
+  
   const { user, assignments, submissions, addAssignment, deleteAssignment, getSubmissionsForAssignment } = useAuth();
   
   // Get assignments for this classroom

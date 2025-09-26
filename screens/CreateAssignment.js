@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAuth } from '../contexts/AuthContext';
+import { createAssignment } from '../services/apiService';
+import Spinner from '../components/Spinner';
 import * as DocumentPicker from 'expo-document-picker'; // Use Expo DocumentPicker
 
 export default function CreateAssignment({ navigation, route }) {
@@ -12,29 +14,73 @@ export default function CreateAssignment({ navigation, route }) {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [questionPaperUri, setQuestionPaperUri] = useState(null);
   const [questionPaperName, setQuestionPaperName] = useState('');
+  const [questionPaperFile, setQuestionPaperFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
-  const { addAssignment } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
 
-  const handleCreateAssignment = () => {
-    if (title.trim()) {
-      const newAssignment = {
-        title,
-        description,
-        dueDate: dueDate.toISOString().split('T')[0],
-        submissions: 0,
-        totalStudents: 25,
-        classroomId: classroom.id,
-        questionPaper: questionPaperUri,
-        questionPaperName: questionPaperName,
-        hasQuestionPaper: !!questionPaperUri,
-      };
-      
-      addAssignment(newAssignment);
-      
-      Alert.alert('Success', `Assignment "${title}" created for ${classroom.name}`);
-      navigation.goBack();
-    } else {
+  const handleCreateAssignment = async () => {
+    if (!title.trim()) {
       Alert.alert('Error', 'Please enter an assignment title');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      // Format deadline to ISO string
+      const deadline = dueDate.toISOString();
+      
+      const assignmentData = {
+        title: title.trim(),
+        description: description.trim() || '',
+        deadline: deadline,
+        classroom_id: classroom.id,
+      };
+
+      // Add question paper file if selected
+      if (questionPaperFile) {
+        assignmentData.questions = questionPaperFile;
+      }
+      
+      const response = await createAssignment(assignmentData);
+      
+      if (response.success) {
+        Alert.alert(
+          'Success', 
+          `Assignment "${title}" created successfully for ${classroom.name}`,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Call the callback if provided to refresh the assignment list
+                if (route?.params?.onAssignmentCreated) {
+                  route.params.onAssignmentCreated();
+                }
+                navigation.goBack();
+              }
+            }
+          ]
+        );
+      } else {
+        throw new Error(response.message || 'Failed to create assignment');
+      }
+    } catch (error) {
+      console.error('Create assignment error:', error);
+      
+      let errorMessage = 'Failed to create assignment. Please try again.';
+      
+      if (error.status === 422 && error.validationErrors) {
+        // Handle validation errors
+        const errorMessages = Object.values(error.validationErrors).flat();
+        errorMessage = errorMessages.join('\n');
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -66,7 +112,7 @@ export default function CreateAssignment({ navigation, route }) {
       setIsUploading(true);
       
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/*'],
+        type: ['application/pdf'], // API only supports PDF according to Postman collection
         copyToCacheDirectory: true,
         multiple: false,
       });
@@ -76,12 +122,20 @@ export default function CreateAssignment({ navigation, route }) {
         
         // Check file size (limit to 10MB)
         if (file.size > 10 * 1024 * 1024) {
-          Alert.alert('File Too Large', 'Please select a file smaller than 10MB.');
+          Alert.alert('File Too Large', 'Please select a PDF file smaller than 10MB.');
           return;
         }
 
+        // Create file object for API
+        const fileObject = {
+          uri: file.uri,
+          type: file.mimeType || 'application/pdf',
+          name: file.name,
+        };
+
         setQuestionPaperUri(file.uri);
         setQuestionPaperName(file.name);
+        setQuestionPaperFile(fileObject);
         
         Alert.alert(
           'File Selected', 
@@ -111,6 +165,7 @@ export default function CreateAssignment({ navigation, route }) {
           onPress: () => {
             setQuestionPaperUri(null);
             setQuestionPaperName('');
+            setQuestionPaperFile(null);
           },
         },
       ]
@@ -170,7 +225,7 @@ export default function CreateAssignment({ navigation, route }) {
       <View style={styles.inputContainer}>
         <Text style={styles.label}>Question Paper (Optional)</Text>
         <Text style={styles.helperText}>
-          Supported formats: PDF, DOC, DOCX, Images (Max: 10MB)
+          Supported formats: PDF only (Max: 10MB)
         </Text>
         
         {!questionPaperUri ? (
@@ -209,13 +264,17 @@ export default function CreateAssignment({ navigation, route }) {
       </View>
       
       <TouchableOpacity 
-        style={[styles.createButton, !title.trim() && styles.disabledButton]}
+        style={[styles.createButton, (!title.trim() || loading) && styles.disabledButton]}
         onPress={handleCreateAssignment}
-        disabled={!title.trim()}
+        disabled={!title.trim() || loading}
       >
-        <Text style={styles.createButtonText}>
-          Create Assignment
-        </Text>
+        {loading ? (
+          <Spinner size="small" color="#fff" showText={false} style={styles.buttonSpinner} />
+        ) : (
+          <Text style={styles.createButtonText}>
+            Create Assignment
+          </Text>
+        )}
       </TouchableOpacity>
 
       <View style={styles.bottomPadding} />
@@ -368,5 +427,10 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 20,
+  },
+  buttonSpinner: {
+    padding: 0,
+    margin: 0,
+    flex: 0,
   },
 });
