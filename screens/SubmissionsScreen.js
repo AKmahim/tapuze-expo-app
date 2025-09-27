@@ -23,11 +23,11 @@ export default function SubmissionsScreen({ navigation, route }) {
           if (submission.grade !== null) {
             status = 'graded';
           }
-          // Check if submitted after deadline (you might need to add this logic based on your needs)
+          // Check if submitted after deadline
           const submittedDate = new Date(submission.submitted_at);
-          const deadlineDate = new Date(assignment.dueDate);
-          if (submittedDate > deadlineDate && submission.grade !== null) {
-            status = 'late';
+          const deadlineDate = new Date(submission.assignment?.deadline || assignment.deadline);
+          if (submittedDate > deadlineDate) {
+            status = submission.grade !== null ? 'late' : 'submitted_late';
           }
 
           return {
@@ -35,19 +35,21 @@ export default function SubmissionsScreen({ navigation, route }) {
             studentName: submission.student?.name || 'Unknown Student',
             studentId: submission.student?.id?.toString() || 'N/A',
             assignmentId: submission.assignment_id.toString(),
-            fileName: submission.solution ? submission.solution.split('/').pop() : 'No file',
+            fileName: submission.submission_file ? submission.submission_file.split('/').pop() : 'No file',
             fileSize: 2048000, // Default size since API doesn't provide this
             submittedAt: submission.submitted_at,
             status: status,
             grade: submission.grade,
             feedback: submission.feedback,
-            solution: submission.solution,
-            files: submission.solution ? [
+            solution: submission.submission_file,
+            submissionTitle: submission.submission_title,
+            submissionDescription: submission.submission_description,
+            files: submission.submission_file ? [
               {
-                name: submission.solution.split('/').pop(),
+                name: submission.submission_file.split('/').pop(),
                 size: 2048000,
                 type: 'application/pdf',
-                uri: submission.solution
+                uri: submission.submission_file
               }
             ] : []
           };
@@ -269,5 +271,9 @@ const styles = StyleSheet.create({
   late: {
     backgroundColor: '#ffebee',
     color: '#d32f2f',
+  },
+  submitted_late: {
+    backgroundColor: '#fff3e0',
+    color: '#f57c00',
   },
 });
