@@ -360,7 +360,9 @@ const EvaluationScreen = ({ navigation, route }) => {
   // Calculate total score
   const calculateTotalScore = () => {
     const totalEarned = evaluation.problem_breakdown.reduce((sum, problem) => sum + problem.score, 0);
-    const totalPossible = evaluation.problem_breakdown.reduce((sum, problem) => sum + problem.max_score, 0);
+    // const totalPossible = evaluation.problem_breakdown.reduce((sum, problem) => sum + problem.max_score, 0);
+    const totalPossible = 100; // Fixed total possible points
+
     return { earned: totalEarned, possible: totalPossible };
   };
 
