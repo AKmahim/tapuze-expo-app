@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, FlatList, Dimensions } from 'react-native';
 import { WebView } from 'react-native-webview';
 import Spinner from '../components/Spinner';
-import { getSubmissionById } from '../services/apiService';
+import { getSubmissionById, evaluateSubmissionWithAI } from '../services/apiService';
 
 export default function SubmissionDetailScreen({ navigation, route }) {
   const { submission: initialSubmission, assignment } = route.params;
@@ -107,8 +107,36 @@ export default function SubmissionDetailScreen({ navigation, route }) {
 
   const evaluation = getDummyEvaluation();
 
-  const handleEvaluate = () => {
-    navigation.navigate('EvaluationScreen', { submission, assignment });
+  const handleEvaluate = async () => {
+    if (!submission.solution) {
+      Alert.alert('Error', 'No submission file found to evaluate.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Construct the full PDF URL
+      const pdfUrl = getFullFileUrl(submission.solution);
+      
+      // Call AI evaluation API
+      const evaluationResult = await evaluateSubmissionWithAI(pdfUrl);
+      
+      // Navigate to EvaluationScreen with the AI evaluation result
+      navigation.navigate('EvaluationScreen', { 
+        submission, 
+        assignment,
+        aiEvaluation: evaluationResult
+      });
+    } catch (error) {
+      console.error('Evaluation failed:', error);
+      Alert.alert(
+        'Evaluation Failed',
+        error.message || 'Failed to evaluate the submission. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDownload = (file) => {
@@ -367,9 +395,15 @@ export default function SubmissionDetailScreen({ navigation, route }) {
         </View>
       </ScrollView>
 
-      {/* Always show evaluate button for demo purposes */}
-      <TouchableOpacity style={styles.evaluateButton} onPress={handleEvaluate}>
-        <Text style={styles.evaluateButtonText}>Evaluate</Text>
+      {/* evaluate the submission by ai  */}
+      <TouchableOpacity 
+        style={[styles.evaluateButton, loading && styles.evaluateButtonDisabled]} 
+        onPress={handleEvaluate}
+        disabled={loading}
+      >
+        <Text style={styles.evaluateButtonText}>
+          {loading ? 'Evaluating...' : 'Evaluate'}
+        </Text>
       </TouchableOpacity>
 
       {/* PDF Preview Modal */}
@@ -870,6 +904,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 4,
+  },
+  evaluateButtonDisabled: {
+    backgroundColor: '#9ca3af',
+    opacity: 0.7,
+    shadowColor: '#9ca3af',
   },
   evaluateButtonText: {
     color: '#fff',

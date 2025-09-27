@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Image, Alert, Linking, Dimensions, TextInput, I18nManager } from 'react-native';
 import { WebView } from 'react-native-webview'; // Using WebView for PDF display instead
+import { saveEvaluationData } from '../services/apiService';
 
 const EvaluationScreen = ({ navigation, route }) => {
-  const { submission, assignment, classroom, userRole } = route.params || {};
+  const { submission, assignment, classroom, userRole, aiEvaluation } = route.params || {};
   // Mock data matching the interface in the image
   const mockEvaluation = {
     overall_score: 93,
@@ -124,7 +125,38 @@ const EvaluationScreen = ({ navigation, route }) => {
     return { uri: mockSubmission.fileUri };
   };
 
-  const [evaluation, setEvaluation] = useState(mockEvaluation);
+  // Transform AI evaluation data to match the expected format
+  const transformAIEvaluation = (aiData) => {
+    if (!aiData || !aiData.problem_breakdown) {
+      return mockEvaluation;
+    }
+
+    return {
+      overall_score: aiData.overall_score || 0,
+      total_points: 100,
+      problem_breakdown: aiData.problem_breakdown.map((problem, index) => ({
+        id: index + 1,
+        title: problem.problem_description?.en || `Problem ${index + 1}`,
+        score: problem.score || 0,
+        max_score: problem.max_score || 100,
+        status: problem.score === problem.max_score ? 'correct' : 
+                problem.score > 0 ? 'partial' : 'incorrect',
+        student_feedback: problem.feedback?.en || '',
+        teacher_recommendations: problem.teacher_recommendation?.en || '',
+        errors: problem.errors?.map((error, errorIndex) => ({
+          id: errorIndex + 1,
+          type: error.error_type || 'calculation_error',
+          description: error.description?.en || error.explanation?.en || '',
+          hint: error.hint?.en || '',
+          points_deducted: error.deduction || 0
+        })) || [],
+        hints: [],
+        expanded: true
+      }))
+    };
+  };
+
+  const [evaluation, setEvaluation] = useState(aiEvaluation ? transformAIEvaluation(aiEvaluation) : mockEvaluation);
   const [isLoading, setIsLoading] = useState(false);
   const [language, setLanguage] = useState('en');
   const [editingProblem, setEditingProblem] = useState(null);
@@ -403,16 +435,61 @@ const EvaluationScreen = ({ navigation, route }) => {
   };
 
   // Save and submit evaluation
-  const handleSaveAndSubmit = () => {
+  const handleSaveAndSubmit = async () => {
     Alert.alert(
       'Submit Evaluation',
       'Are you sure you want to submit this evaluation to the student? They will only see student feedback, errors, and hints - not teacher recommendations.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Submit', onPress: () => {
-            Alert.alert('Success', 'Evaluation submitted to student successfully!');
-            navigation.goBack();
+          text: 'Submit', 
+          onPress: async () => {
+            try {
+              setIsLoading(true);
+              
+              // Prepare the evaluation data to match the AI API response format
+              const evaluationData = {
+                overall_score: evaluation.overall_score,
+                problem_breakdown: evaluation.problem_breakdown.map(problem => ({
+                  problem_description: {
+                    en: problem.title,
+                    he: problem.title // You can add Hebrew translation if needed
+                  },
+                  score: problem.score,
+                  max_score: problem.max_score,
+                  feedback: {
+                    en: problem.student_feedback,
+                    he: problem.student_feedback // You can add Hebrew translation if needed
+                  },
+                  teacher_recommendation: {
+                    en: problem.teacher_recommendations,
+                    he: problem.teacher_recommendations // You can add Hebrew translation if needed
+                  },
+                  errors: problem.errors.map(error => ({
+                    description: {
+                      en: error.description,
+                      he: error.description // You can add Hebrew translation if needed
+                    },
+                    location: error.type
+                  }))
+                }))
+              };
+
+              // Save the evaluation data
+              await saveEvaluationData(submission.id, evaluationData);
+              
+              Alert.alert('Success', 'Evaluation submitted to student successfully!');
+              navigation.goBack();
+            } catch (error) {
+              console.error('Failed to save evaluation:', error);
+              Alert.alert(
+                'Error',
+                error.message || 'Failed to save evaluation. Please try again.',
+                [{ text: 'OK' }]
+              );
+            } finally {
+              setIsLoading(false);
+            }
           }
         }
       ]
@@ -768,10 +845,13 @@ const EvaluationScreen = ({ navigation, route }) => {
               {/* Submit Button (Teacher Only) */}
               {isTeacher && (
                 <TouchableOpacity
-                  style={styles.submitButton}
+                  style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
                   onPress={handleSaveAndSubmit}
+                  disabled={isLoading}
                 >
-                  <Text style={styles.submitButtonText}>{t.saveSubmitToStudent}</Text>
+                  <Text style={styles.submitButtonText}>
+                    {isLoading ? 'Saving...' : t.saveSubmitToStudent}
+                  </Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -1401,6 +1481,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 24,
     minHeight: Dimensions.get('window').width < 768 ? 52 : 'auto', // Larger touch target
+  },
+  submitButtonDisabled: {
+    backgroundColor: '#9ca3af',
+    opacity: 0.7,
   },
   submitButtonText: {
     color: '#ffffff',

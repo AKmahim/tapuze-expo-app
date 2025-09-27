@@ -599,6 +599,92 @@ export const deleteSubmission = async (submissionId) => {
   }
 };
 
+// AI Evaluation API - calls the external AI service
+export const evaluateSubmissionWithAI = async (pdfUrl) => {
+  try {
+    const response = await fetch('https://tapuze.xri.com.bd/evaluate-url', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({
+        pdfUrl: pdfUrl
+      })
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      const errorObj = new Error(result.error || result.message || 'AI evaluation failed');
+      errorObj.status = response.status;
+      errorObj.details = result.details;
+      throw errorObj;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('AI evaluation failed:', error);
+    
+    if (!error.status) {
+      const networkError = new Error('Network error. Please check your internet connection and try again.');
+      networkError.status = 0;
+      throw networkError;
+    }
+    
+    throw error;
+  }
+};
+
+// Save evaluation data to backend
+export const saveEvaluationData = async (submissionId, evaluationData) => {
+  try {
+    const token = await getAuthToken();
+    
+    // Create FormData for the evaluation
+    const formData = new FormData();
+    formData.append('evaluation', JSON.stringify(evaluationData));
+
+    const response = await fetch(`${API_BASE_URL}/lecturer/submission/evaluate-submission/${submissionId}`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: formData
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      // Handle validation errors (422)
+      if (response.status === 422 && result.errors) {
+        const errorObj = new Error(result.message || 'Validation failed');
+        errorObj.validationErrors = result.errors;
+        errorObj.status = 422;
+        throw errorObj;
+      }
+      
+      // Handle other errors
+      const errorObj = new Error(result.message || 'Failed to save evaluation');
+      errorObj.status = response.status;
+      throw errorObj;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Failed to save evaluation:', error);
+    
+    if (!error.status) {
+      const networkError = new Error('Network error. Please check your internet connection and try again.');
+      networkError.status = 0;
+      throw networkError;
+    }
+    
+    throw error;
+  }
+};
+
 // Mock function for AI grading - replace with actual API call
 export const gradeHomeworkWithAI = async (fileData) => {
   try {
