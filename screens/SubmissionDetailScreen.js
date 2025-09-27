@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, FlatList } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, FlatList, Dimensions } from 'react-native';
+import { WebView } from 'react-native-webview';
 import Spinner from '../components/Spinner';
 import { getSubmissionById } from '../services/apiService';
 
@@ -7,6 +8,10 @@ export default function SubmissionDetailScreen({ navigation, route }) {
   const { submission: initialSubmission, assignment } = route.params;
   const [submission, setSubmission] = useState(initialSubmission);
   const [loading, setLoading] = useState(false);
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [showInlinePreview, setShowInlinePreview] = useState(false);
+  const [pdfError, setPdfError] = useState(false);
+  const [inlinePdfError, setInlinePdfError] = useState(false);
 
   // Fetch detailed submission data if needed
   const fetchSubmissionDetails = async () => {
@@ -20,7 +25,9 @@ export default function SubmissionDetailScreen({ navigation, route }) {
           ...submission,
           grade: response.data.grade,
           feedback: response.data.feedback,
-          solution: response.data.solution,
+          solution: response.data.submission_file,
+          submissionTitle: response.data.submission_title,
+          submissionDescription: response.data.submission_description,
           // Add any other fields that might be available from the detailed API
         };
         setSubmission(detailedSubmission);
@@ -31,6 +38,15 @@ export default function SubmissionDetailScreen({ navigation, route }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper function to construct full PDF URL
+  const getFullFileUrl = (relativePath) => {
+    if (!relativePath) return null;
+    const API_BASE_URL = 'https://tapuze.xrinteractive.site';
+    // Remove leading slash if present to avoid double slashes
+    const cleanPath = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath;
+    return `${API_BASE_URL}/${cleanPath}`;
   };
 
   // Load detailed submission data on component mount if needed
@@ -108,6 +124,29 @@ export default function SubmissionDetailScreen({ navigation, route }) {
     );
   };
 
+  const handlePreviewPdf = () => {
+    if (submission.solution) {
+      setShowPdfPreview(true);
+      setPdfError(false);
+    } else {
+      Alert.alert('Error', 'No file available for preview');
+    }
+  };
+
+  const closePdfPreview = () => {
+    setShowPdfPreview(false);
+    setPdfError(false);
+  };
+
+  const toggleInlinePreview = () => {
+    if (!submission.solution) {
+      Alert.alert('Error', 'No file available for preview');
+      return;
+    }
+    setShowInlinePreview(!showInlinePreview);
+    setInlinePdfError(false);
+  };
+
   const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -124,12 +163,32 @@ export default function SubmissionDetailScreen({ navigation, route }) {
           {item.type.toUpperCase()} • {formatFileSize(item.size)}
         </Text>
       </View>
-      <TouchableOpacity
-        style={styles.downloadButton}
-        onPress={() => handleDownload(item)}
-      >
-        <Text style={styles.downloadButtonText}>Download</Text>
-      </TouchableOpacity>
+      <View style={styles.fileActions}>
+        {item.type === 'application/pdf' && (
+          <>
+            <TouchableOpacity
+              style={styles.quickPreviewButton}
+              onPress={toggleInlinePreview}
+            >
+              <Text style={styles.quickPreviewButtonText}>
+                {showInlinePreview ? 'Hide' : 'Quick'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.previewButton}
+              onPress={handlePreviewPdf}
+            >
+              <Text style={styles.previewButtonText}>Full</Text>
+            </TouchableOpacity>
+          </>
+        )}
+        <TouchableOpacity
+          style={styles.downloadButton}
+          onPress={() => handleDownload(item)}
+        >
+          <Text style={styles.downloadButtonText}>Download</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -150,7 +209,7 @@ export default function SubmissionDetailScreen({ navigation, route }) {
         <View style={styles.assignmentInfo}>
           <Text style={styles.sectionTitle}>Assignment</Text>
           <Text style={styles.assignmentName}>{assignment.title}</Text>
-          <Text style={styles.dueDate}>Due: {new Date(assignment.dueDate).toLocaleDateString()}</Text>
+          <Text style={styles.dueDate}>Due: {new Date(assignment.deadline || assignment.dueDate).toLocaleDateString()}</Text>
         </View>
 
         <View style={styles.studentInfo}>
@@ -224,11 +283,87 @@ export default function SubmissionDetailScreen({ navigation, route }) {
         </View>
 
         <View style={styles.previewSection}>
-          <Text style={styles.sectionTitle}>File Previews</Text>
-          <View style={styles.previewPlaceholder}>
-            <Text style={styles.previewText}>File previews will be displayed here</Text>
-            <Text style={styles.previewHint}>Multiple file viewer integration coming soon</Text>
+          <View style={styles.previewHeader}>
+            <Text style={styles.sectionTitle}>File Preview</Text>
+            {submission.files.length > 0 && submission.files[0].type === 'application/pdf' && (
+              <TouchableOpacity
+                style={styles.togglePreviewButton}
+                onPress={toggleInlinePreview}
+              >
+                <Text style={styles.togglePreviewText}>
+                  {showInlinePreview ? '🔼 Hide Preview' : '🔽 Show Preview'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
+          
+          {showInlinePreview && submission.solution ? (
+            <View style={styles.inlinePreviewContainer}>
+              {!inlinePdfError ? (
+                <WebView
+                  source={{ 
+                    uri: `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(getFullFileUrl(submission.solution))}` 
+                  }}
+                  style={styles.inlineWebView}
+                  startInLoadingState={true}
+                  renderLoading={() => (
+                    <View style={styles.inlineLoadingContainer}>
+                      <Spinner />
+                      <Text style={styles.loadingText}>Loading preview...</Text>
+                    </View>
+                  )}
+                  onError={(syntheticEvent) => {
+                    console.warn('Inline WebView error: ', syntheticEvent.nativeEvent);
+                    setInlinePdfError(true);
+                  }}
+                  onHttpError={(syntheticEvent) => {
+                    console.warn('Inline WebView HTTP error: ', syntheticEvent.nativeEvent);
+                    setInlinePdfError(true);
+                  }}
+                  javaScriptEnabled={true}
+                  domStorageEnabled={true}
+                  scalesPageToFit={true}
+                  bounces={false}
+                  scrollEnabled={true}
+                />
+              ) : (
+                <View style={styles.inlineErrorContainer}>
+                  <Text style={styles.inlineErrorText}>❌ Preview unavailable</Text>
+                  <Text style={styles.inlineErrorSubText}>Try the full preview mode</Text>
+                  <TouchableOpacity 
+                    style={styles.inlineRetryButton} 
+                    onPress={() => setInlinePdfError(false)}
+                  >
+                    <Text style={styles.inlineRetryButtonText}>Retry</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              
+              <View style={styles.previewActions}>
+                <TouchableOpacity
+                  style={styles.fullPreviewButton}
+                  onPress={handlePreviewPdf}
+                >
+                  <Text style={styles.fullPreviewButtonText}>🔍 View Full Screen</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.previewPlaceholder}>
+              {submission.files.length > 0 && submission.files[0].type === 'application/pdf' ? (
+                <>
+                  <Text style={styles.previewText}>📄 PDF Ready for Preview</Text>
+                  <Text style={styles.previewHint}>Use buttons above to preview without downloading</Text>
+                  <Text style={styles.fileName}>{submission.files[0].name}</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.previewText}>No preview available</Text>
+                  <Text style={styles.previewHint}>Only PDF files support preview</Text>
+                </>
+              )}
+            </View>
+          )}
         </View>
       </ScrollView>
 
@@ -236,6 +371,57 @@ export default function SubmissionDetailScreen({ navigation, route }) {
       <TouchableOpacity style={styles.evaluateButton} onPress={handleEvaluate}>
         <Text style={styles.evaluateButtonText}>Evaluate</Text>
       </TouchableOpacity>
+
+      {/* PDF Preview Modal */}
+      {showPdfPreview && submission.solution && (
+        <View style={styles.pdfModal}>
+          <View style={styles.pdfHeader}>
+            <Text style={styles.pdfTitle}>PDF Preview</Text>
+            <TouchableOpacity style={styles.closeButton} onPress={closePdfPreview}>
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {!pdfError ? (
+            <WebView
+              source={{ uri: `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(getFullFileUrl(submission.solution))}` }}
+              style={styles.pdfViewer}
+              startInLoadingState={true}
+              renderLoading={() => (
+                <View style={styles.loadingContainer}>
+                  <Spinner />
+                  <Text style={styles.loadingText}>Loading PDF...</Text>
+                </View>
+              )}
+              onError={(syntheticEvent) => {
+                const { nativeEvent } = syntheticEvent;
+                console.warn('WebView error: ', nativeEvent);
+                setPdfError(true);
+              }}
+              onHttpError={(syntheticEvent) => {
+                const { nativeEvent } = syntheticEvent;
+                console.warn('WebView HTTP error: ', nativeEvent);
+                setPdfError(true);
+              }}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              allowsInlineMediaPlayback={true}
+              mediaPlaybackRequiresUserAction={false}
+              scalesPageToFit={true}
+              bounces={false}
+              scrollEnabled={true}
+            />
+          ) : (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>❌ Unable to load PDF</Text>
+              <Text style={styles.errorSubText}>The file might be corrupted or not accessible.</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={() => setPdfError(false)}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -503,19 +689,77 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6c757d',
   },
+  fileActions: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  quickPreviewButton: {
+    backgroundColor: '#17a2b8',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  quickPreviewButtonText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  previewButton: {
+    backgroundColor: '#28a745',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  previewButtonText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
+  },
   downloadButton: {
     backgroundColor: '#007bff',
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 6,
   },
   downloadButtonText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   previewSection: {
     marginBottom: 16,
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  togglePreviewButton: {
+    backgroundColor: '#6c757d',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  togglePreviewText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  previewContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    overflow: 'hidden',
+  },
+  previewThumbnail: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8f9fa',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
   },
   previewPlaceholder: {
     backgroundColor: '#fff',
@@ -537,6 +781,76 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#adb5bd',
     textAlign: 'center',
+    marginBottom: 8,
+  },
+  inlinePreviewContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  inlineWebView: {
+    height: 400,
+    backgroundColor: '#f8f9fa',
+  },
+  inlineLoadingContainer: {
+    height: 400,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+  },
+  inlineErrorContainer: {
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    padding: 20,
+  },
+  inlineErrorText: {
+    fontSize: 16,
+    color: '#dc3545',
+    textAlign: 'center',
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+  inlineErrorSubText: {
+    fontSize: 12,
+    color: '#6c757d',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  inlineRetryButton: {
+    backgroundColor: '#007bff',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  inlineRetryButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  previewActions: {
+    padding: 12,
+    backgroundColor: '#f8f9fa',
+    borderTopWidth: 1,
+    borderTopColor: '#e9ecef',
+    alignItems: 'center',
+  },
+  fullPreviewButton: {
+    backgroundColor: '#007bff',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  fullPreviewButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   evaluateButton: {
     backgroundColor: '#007bff',
@@ -562,5 +876,85 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 0.5,
+  },
+  // PDF Preview Modal Styles
+  pdfModal: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#fff',
+    zIndex: 1000,
+  },
+  pdfHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+  },
+  pdfTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#2c3e50',
+  },
+  closeButton: {
+    padding: 8,
+    backgroundColor: '#dc3545',
+    borderRadius: 20,
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  pdfViewer: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f8f9fa',
+  },
+  errorText: {
+    fontSize: 18,
+    color: '#dc3545',
+    textAlign: 'center',
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+  errorSubText: {
+    fontSize: 14,
+    color: '#6c757d',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  retryButton: {
+    backgroundColor: '#007bff',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
